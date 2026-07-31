@@ -236,23 +236,30 @@ async def text_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
 def main():
     app = ApplicationBuilder().token(BOT_TOKEN).build()
 
-    # 定时任务：每5分钟清理过期哈希
-    scheduler.add_job(clean_expire_hash, trigger="interval", minutes=5)
-    scheduler.start()
-
-    # 注册处理器
+    # 注册所有处理器不变
     app.add_handler(CommandHandler("start", start_cmd))
     app.add_handler(CommandHandler("send", send_cmd))
     app.add_handler(CommandHandler("auto", auto_switch_cmd))
     app.add_handler(CommandHandler("help", start_cmd))
 
-    # 图片、视频处理器
     media_filter = filters.PHOTO | filters.VIDEO
     app.add_handler(MessageHandler(media_filter, media_handler))
-
-    # 纯文本处理器（排除指令）
     text_filter = filters.TEXT & ~filters.COMMAND
     app.add_handler(MessageHandler(text_filter, text_handler))
+
+    # 修复点1：把调度器挂载到bot的context，跟随async事件循环启动
+    async def on_startup(context: ContextTypes.DEFAULT_TYPE):
+        scheduler.add_job(clean_expire_hash, trigger="interval", minutes=5)
+        scheduler.start()
+        print("✅ 定时任务调度器已启动")
+
+    async def on_shutdown(context: ContextTypes.DEFAULT_TYPE):
+        scheduler.shutdown()
+        print("✅ 调度器正常关闭")
+
+    # 绑定生命周期钩子，在事件循环就绪后再启动scheduler
+    app.add_startup_handler(on_startup)
+    app.add_shutdown_handler(on_shutdown)
 
     print("Bot 启动成功，轮询中...")
     app.run_polling()
