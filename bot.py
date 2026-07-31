@@ -236,7 +236,7 @@ async def text_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
 def main():
     app = ApplicationBuilder().token(BOT_TOKEN).build()
 
-    # 注册所有处理器不变
+    # 注册所有指令和消息处理器（保持不变）
     app.add_handler(CommandHandler("start", start_cmd))
     app.add_handler(CommandHandler("send", send_cmd))
     app.add_handler(CommandHandler("auto", auto_switch_cmd))
@@ -244,25 +244,27 @@ def main():
 
     media_filter = filters.PHOTO | filters.VIDEO
     app.add_handler(MessageHandler(media_filter, media_handler))
+
     text_filter = filters.TEXT & ~filters.COMMAND
     app.add_handler(MessageHandler(text_filter, text_handler))
 
-    # 修复点1：把调度器挂载到bot的context，跟随async事件循环启动
-    async def on_startup(context: ContextTypes.DEFAULT_TYPE):
+    # ========== 核心修复：在run_polling内部协程启动调度器 ==========
+    async def run_bot():
+        # 事件循环已就绪，再启动APScheduler
         scheduler.add_job(clean_expire_hash, trigger="interval", minutes=5)
         scheduler.start()
-        print("✅ 定时任务调度器已启动")
+        print("✅ 定时清理哈希任务已启动")
 
-    async def on_shutdown(context: ContextTypes.DEFAULT_TYPE):
+        # 运行机器人
+        await app.run_polling(close_loop=False)
+
+        # 退出时关闭调度器
         scheduler.shutdown()
-        print("✅ 调度器正常关闭")
+        print("✅ 调度器安全关闭")
 
-    # 绑定生命周期钩子，在事件循环就绪后再启动scheduler
-    app.add_startup_handler(on_startup)
-    app.add_shutdown_handler(on_shutdown)
-
-    print("Bot 启动成功，轮询中...")
-    app.run_polling()
+    # 用asyncio手动执行，保证loop存在
+    import asyncio
+    asyncio.run(run_bot())
 
 if __name__ == "__main__":
     main()
